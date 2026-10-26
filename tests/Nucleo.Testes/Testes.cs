@@ -263,6 +263,8 @@ public class GuiasNavTestes
     [InlineData("Uso da memória em ZapFunil (fixada): 292", "ZapFunil")]
     [InlineData("Uso da memória em Nova sessão - Claude (", "Nova sessão - Claude")]
     [InlineData("Memory usage in (3) WhatsApp (pinned): 1,2 GB", "(3) WhatsApp")]
+    [InlineData("Uso elevado da memória em WhatsApp Business (fixada): 1,1 GB", "WhatsApp Business")]
+    [InlineData("High memory usage in (2) WhatsApp: 900 MB", "(2) WhatsApp")]
     [InlineData("(2) WhatsApp", "(2) WhatsApp")]
     [InlineData("Caixa de entrada (5) - joni@x.com - Gmail", "Caixa de entrada (5) - joni@x.com - Gmail")]
     public void Normaliza_nome_da_guia(string bruto, string esperado) => Assert.Equal(esperado, GuiasNav.Normalizar(bruto));

@@ -12,7 +12,7 @@ namespace DSVigia.Nucleo
     /// </summary>
     public static class GuiasNav
     {
-        static readonly Regex Prefixo = new Regex(@"^\s*(?:uso\s+d[ae]\s+mem[oó]ria\s+(?:em|-|:)\s*|memory\s+usage\s+(?:in|-|:)\s*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        static readonly Regex Prefixo = new Regex(@"^\s*(?:(?:alto\s+)?uso\s+(?:elevado\s+|alto\s+)?d[ae]\s+mem[oó]ria\s+(?:em|-|:)\s*|(?:high\s+)?memory\s+usage\s+(?:in|-|:)\s*)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         static readonly Regex SufixoMem = new Regex(@"\s*(?::\s*[\d.,]+\s*(?:KB|MB|GB)?|\s+-\s+(?:uso\s+d[ae]\s+mem[oó]ria|memory\s+usage)\b.*)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         static readonly Regex Marcador = new Regex(@"\s*\((?:fixad[ao]|pinned)\)\s*", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         static readonly Regex Navegador = new Regex(@"\s+[-\u2014]\s+(?:Google Chrome|Chromium|(?:[^-\u2014]+\s+[-\u2014]\s+)?Microsoft\W*Edge)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
