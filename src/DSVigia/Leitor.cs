@@ -140,19 +140,46 @@ namespace DSVigia
             return d;
         }
 
+        /// <summary>
+        /// Guias da faixa do navegador, com o nome já limpo (GuiasNav.Normalizar). Não entra na página (Document):
+        /// abas de dentro dos sites ("Arquivos", "Código") não são guias. O título da janela entra junto, porque é o
+        /// único lugar com o "(n)" da guia ativa.
+        /// </summary>
         internal static void ColherGuias(AutomationElement raiz, List<string> saida)
         {
+            var brutas = new List<string>();
+            string titulo = "";
+            try { titulo = raiz.Current.Name ?? ""; } catch { }
             try
             {
-                var cond = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TabItem);
-                foreach (AutomationElement e in raiz.FindAll(TreeScope.Descendants, cond))
+                var w = TreeWalker.ControlViewWalker;
+                var fila = new Queue<KeyValuePair<AutomationElement, int>>();
+                fila.Enqueue(new KeyValuePair<AutomationElement, int>(raiz, 0));
+                int vistos = 0;
+                while (fila.Count > 0 && vistos < 3000 && brutas.Count < 400)
                 {
-                    var nome = Nome(e);
-                    if (!string.IsNullOrEmpty(nome)) saida.Add(nome);
-                    if (saida.Count > 400) break;
+                    var item = fila.Dequeue(); var e = item.Key; var nivel = item.Value;
+                    vistos++;
+                    ControlType ct;
+                    try { ct = e.Current.ControlType; } catch { continue; }
+                    if (ct == ControlType.Document) continue;          // conteúdo do site: fora
+                    if (ct == ControlType.TabItem)
+                    {
+                        var nome = Nome(e);
+                        if (!string.IsNullOrEmpty(nome)) brutas.Add(nome);
+                        continue;                                      // guia não tem guia dentro
+                    }
+                    if (nivel >= 20) continue;
+                    try
+                    {
+                        for (var f = w.GetFirstChild(e); f != null; f = w.GetNextSibling(f))
+                            fila.Enqueue(new KeyValuePair<AutomationElement, int>(f, nivel + 1));
+                    }
+                    catch { }
                 }
             }
             catch { }
+            saida.AddRange(GuiasNav.Juntar(brutas, titulo));
         }
 
         static void ColherRotulos(AutomationElement raiz, List<string> saida)

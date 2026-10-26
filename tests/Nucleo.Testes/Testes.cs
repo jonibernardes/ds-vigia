@@ -253,3 +253,50 @@ public class FaroisTestes
         Assert.Null(Farois.PerfilDaLinha("chrome.exe --type=renderer"));
     }
 }
+
+public class GuiasNavTestes
+{
+    static string Wa => RegrasPadrao.Todas().First(r => r.Id == "p-wa-web").Rotulo;
+
+    [Theory]
+    [InlineData("Uso da memória em WhatsApp Business (fixada): 292 MB", "WhatsApp Business")]
+    [InlineData("Uso da memória em ZapFunil (fixada): 292", "ZapFunil")]
+    [InlineData("Uso da memória em Nova sessão - Claude (", "Nova sessão - Claude")]
+    [InlineData("Memory usage in (3) WhatsApp (pinned): 1,2 GB", "(3) WhatsApp")]
+    [InlineData("(2) WhatsApp", "(2) WhatsApp")]
+    [InlineData("Caixa de entrada (5) - joni@x.com - Gmail", "Caixa de entrada (5) - joni@x.com - Gmail")]
+    public void Normaliza_nome_da_guia(string bruto, string esperado) => Assert.Equal(esperado, GuiasNav.Normalizar(bruto));
+
+    [Theory]
+    [InlineData("(1) WhatsApp Business - Google Chrome", "(1) WhatsApp Business")]
+    [InlineData("Nova sessão - Claude - Google Chrome", "Nova sessão - Claude")]
+    [InlineData("Notas e mais 3 páginas - Pessoal - Microsoft\u200B Edge", "Notas")]
+    public void Titulo_sem_navegador(string bruto, string esperado) => Assert.Equal(esperado, GuiasNav.TituloSemNavegador(bruto));
+
+    [Fact] public void Titulo_da_janela_traz_o_numero_sem_contar_em_dobro()
+    {
+        var g = GuiasNav.Juntar(new[] { "Uso da memória em WhatsApp Business (fixada): 292 MB", "Uso da memória em ZapFunil (fixada): 292" }, "(1) WhatsApp Business - Google Chrome");
+        Assert.Equal(new[] { "(1) WhatsApp Business", "ZapFunil" }, g);
+        Assert.Equal(1, Contagem.PorRotulo(g, Wa));
+    }
+
+    [Fact] public void Titulo_de_outra_pagina_entra_como_guia() =>
+        Assert.Equal(new[] { "WhatsApp", "Gmail" }, GuiasNav.Juntar(new[] { "WhatsApp" }, "Gmail - Google Chrome"));
+
+    [Fact] public void WhatsApp_Business_casa_com_a_regra_do_whatsapp()
+    {
+        Assert.Equal(0, Contagem.PorRotulo(new[] { "WhatsApp Business" }, Wa));
+        Assert.Equal(4, Contagem.PorRotulo(new[] { "(4) WhatsApp Business" }, Wa));
+    }
+
+    [Fact] public void Pasta_de_dados_separa_chrome_de_automacao()
+    {
+        Assert.Equal("C:\\relay\\nav", GuiasNav.PastaDaLinha("\"chrome.exe\" --user-data-dir=\"C:\\relay\\nav\\\" --remote-debugging-port=9292"));
+        Assert.Null(GuiasNav.PastaDaLinha("chrome.exe --type=renderer"));
+        var padrao = "C:\\Users\\x\\AppData\\Local\\Google\\Chrome\\User Data";
+        Assert.Equal("Profile 1", GuiasNav.ChavePerfil(padrao, padrao, "Profile 1"));
+        Assert.Equal("Default", GuiasNav.ChavePerfil(null, padrao, "Default"));
+        Assert.Equal("C:\\relay\\nav|Default", GuiasNav.ChavePerfil("C:\\relay\\nav", padrao, "Default"));
+        Assert.Equal("", GuiasNav.ChavePerfil(padrao, padrao, null));
+    }
+}

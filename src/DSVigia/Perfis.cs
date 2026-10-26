@@ -54,14 +54,21 @@ namespace DSVigia
                     Leitor.ColherGuias(raiz, j.Guias);
                     if (j.Guias.Count == 0) continue;   // app instalado (PWA) ou janela auxiliar: não é janela de guias
 
-                    var perfis = Lista(proc);
+                    // outra pasta de dados (--user-data-dir): outro Chrome, com perfis próprios
+                    var linha = LinhaDeComando(pid);
+                    var padrao = PastaDados(proc);
+                    var pasta = GuiasNav.PastaDaLinha(linha) ?? padrao;
+                    bool outra = !string.Equals(pasta.TrimEnd('\\'), padrao.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+                    var perfis = ListaDaPasta(pasta);
                     var pastas = perfis.Keys.ToList();
                     string id = Farois.PerfilDoAppId(AppId(h), pastas);
                     if (id != null) j.Via = "a";
                     if (id == null) { id = Farois.PerfilPeloBotao(BotoesDaBarra(raiz), perfis); if (id != null) j.Via = "b"; }
-                    if (id == null) { id = Farois.PerfilDaLinha(LinhaDeComando(pid)); if (id != null) j.Via = "c"; }
-                    j.PerfilId = id ?? "";
-                    j.PerfilNome = id != null && perfis.TryGetValue(id, out var ns) && ns.Count > 0 && ns[0] != "" ? ns[0] : (id ?? "");
+                    if (id == null) { id = Farois.PerfilDaLinha(linha); if (id != null) j.Via = "c"; }
+                    if (id == null && outra) { id = "Default"; j.Via = "c"; }
+                    j.PerfilId = GuiasNav.ChavePerfil(pasta, padrao, id);
+                    var nome = id != null && perfis.TryGetValue(id, out var ns) && ns.Count > 0 && ns[0] != "" ? ns[0] : (id ?? "");
+                    j.PerfilNome = outra && nome != "" ? nome + " (outra pasta do " + (proc == "msedge" ? "Edge" : "Chrome") + ")" : nome;
                     r.Add(j);
                 }
                 catch { /* janela fechou no meio */ }
@@ -80,9 +87,12 @@ namespace DSVigia
         }
 
         /// <summary>pasta do perfil → [nome no navegador, outros nomes (conta Google, atalho)]. Lê profile.info_cache do Local State.</summary>
-        public static Dictionary<string, List<string>> Lista(string navegador)
+        public static Dictionary<string, List<string>> Lista(string navegador) => ListaDaPasta(PastaDados(navegador));
+
+        /// <summary>O mesmo, a partir da pasta de dados (a padrão ou a do --user-data-dir).</summary>
+        public static Dictionary<string, List<string>> ListaDaPasta(string pastaDados)
         {
-            var arq = Path.Combine(PastaDados(navegador), "Local State");
+            var arq = Path.Combine(pastaDados ?? "", "Local State");
             var vazio = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             try
             {
