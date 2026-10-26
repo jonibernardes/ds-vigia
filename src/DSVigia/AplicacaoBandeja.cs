@@ -21,6 +21,8 @@ namespace DSVigia
         readonly Enviador enviador;
         readonly Dictionary<string, Canal> canais = new Dictionary<string, Canal>();
         List<Regra> regras;
+        volatile List<Farol> farois;   // vazio = automático
+        ConfigurarFarois telaFarois;
         DateTime regrasEm = DateTime.MinValue, ultimoEnvio = DateTime.MinValue, ultimoPonto = DateTime.MinValue;
         Sinaleiro barra;
         bool ocupado;
@@ -32,6 +34,7 @@ namespace DSVigia
             estado = Estado.Carregar();
             enviador = new Enviador(estado);
             regras = RegrasPadrao.Todas();
+            farois = ArquivoFarois.Carregar();
 
             icone = new NotifyIcon { Visible = true, Text = "DS Vigia", Icon = Pintar(Color.Gray, "") };
             icone.DoubleClick += (s, e) => AbrirSinaleiro();
@@ -53,13 +56,14 @@ namespace DSVigia
         {
             var m = new ContextMenuStrip();
             m.Items.Add("Abrir sinaleiro", null, (s, e) => AbrirSinaleiro());
+            m.Items.Add("Configurar faróis", null, (s, e) => AbrirFarois());
             m.Items.Add(new ToolStripSeparator());
-            m.Items.Add("Entrar / trocar usuário", null, (s, e) => PedirLogin());
+            var entrar = m.Items.Add("Entrar / trocar usuário", null, (s, e) => PedirLogin());
             m.Items.Add("Nome deste computador", null, (s, e) => RenomearPC());
             m.Items.Add("Verificar agora", null, (s, e) => Ciclo(true));
             m.Items.Add(new ToolStripSeparator());
             m.Items.Add("Sair", null, (s, e) => { icone.Visible = false; Application.Exit(); });
-            m.Opening += (s, e) => m.Items[2].Text = estado.Logado ? "Usuário: " + (estado.Nome ?? estado.Email) : "Entrar no sistema";
+            m.Opening += (s, e) => entrar.Text = estado.Logado ? "Usuário: " + (estado.Nome ?? estado.Email) : "Entrar no sistema";
             return m;
         }
 
@@ -76,13 +80,18 @@ namespace DSVigia
 
                     bool mudou = false;
                     var vistos = new HashSet<string>();
-                    foreach (var l in Leitor.Ler(regras))
+                    var fs = farois;
+                    bool comFarois = fs != null && fs.Count > 0;
+                    foreach (var l in Leitor.Ler(regras, fs))
                     {
                         vistos.Add(l.Chave);
                         if (!canais.TryGetValue(l.Chave, out var c)) { c = new Canal { Chave = l.Chave, Nome = l.Nome }; canais[l.Chave] = c; }
                         if (string.IsNullOrEmpty(c.Nome)) c.Nome = l.Nome;
+                        else if (comFarois && c.Nome != l.Nome) { c.Nome = l.Nome; mudou = true; }   // farol renomeado
                         mudou |= c.Atualizar(l.Pendentes, agora, l.MaisAntiga);
                     }
+                    // trocou de modo (ou tirou um farol): o sinal velho vai fechado ao sistema uma vez e sai da lista
+                    var descartar = canais.Values.Where(c => !vistos.Contains(c.Chave) && (comFarois || c.Chave.StartsWith(Farois.Prefixo))).Select(c => c.Chave).ToList();
                     foreach (var c in canais.Values)
                         if (!vistos.Contains(c.Chave)) mudou |= c.Atualizar(null, agora);
 
@@ -108,6 +117,7 @@ namespace DSVigia
                     {
                         enviador.Enviar(canais.Values.ToList(), agora); ultimoEnvio = agora;
                     }
+                    foreach (var k in descartar) canais.Remove(k);
                     if (estado.Logado && (agora - ultimoPonto).TotalMinutes > 2)
                     {
                         enviador.BaterPonto(agora, canais.Count + " canais"); ultimoPonto = agora;
@@ -132,7 +142,7 @@ namespace DSVigia
             icone.Icon = Pintar(cor, total > 0 ? (total > 99 ? "99" : total.ToString()) : "");
             icone.Text = estado.Logado ? ("DS Vigia · " + (total == 0 ? "em dia" : total + " esperando")) : "DS Vigia · entre no sistema";
             velho?.Dispose();
-            barra?.Mostrar(canais.Values.ToList(), agora);
+            barra?.Mostrar(canais.Values.ToList(), agora, Ordem());
         }
 
         static Icon Pintar(Color cor, string texto)
@@ -155,7 +165,21 @@ namespace DSVigia
         void AbrirSinaleiro()
         {
             if (barra == null || barra.IsDisposed) barra = new Sinaleiro();
-            barra.Show(); barra.Mostrar(canais.Values.ToList(), DateTime.UtcNow);
+            barra.Show(); barra.Mostrar(canais.Values.ToList(), DateTime.UtcNow, Ordem());
+        }
+
+        /// <summary>Com faróis, o sinaleiro segue a ordem que a atendente escolheu; sem, a de sempre (por cor).</summary>
+        List<string> Ordem()
+        {
+            var fs = farois;
+            return fs != null && fs.Count > 0 ? fs.Select(f => Farois.Prefixo + f.Id).ToList() : null;
+        }
+
+        void AbrirFarois()
+        {
+            if (telaFarois != null && !telaFarois.IsDisposed) { telaFarois.WindowState = FormWindowState.Normal; telaFarois.Activate(); return; }
+            telaFarois = new ConfigurarFarois(() => regras, farois, novos => { farois = novos; Ciclo(true); });
+            telaFarois.Show();
         }
 
         void PedirLogin()
@@ -174,6 +198,6 @@ namespace DSVigia
                 if (f.ShowDialog() == DialogResult.OK && f.Valor.Trim().Length > 0) { estado.NomePC = f.Valor.Trim(); estado.Salvar(); Ciclo(true); }
         }
 
-        public void Dispose() { relogio?.Dispose(); icone?.Dispose(); barra?.Dispose(); }
+        public void Dispose() { telaFarois?.Dispose(); relogio?.Dispose(); icone?.Dispose(); barra?.Dispose(); }
     }
 }

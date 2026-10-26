@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using DSVigia.Nucleo;
 using Xunit;
@@ -124,5 +125,131 @@ public class OutrosTestes
     {
         foreach (var r in RegrasPadrao.Todas().Where(r => r.Rotulo != ""))
             Assert.NotNull(Contagem.Re(r.Rotulo));
+    }
+}
+
+public class FaroisTestes
+{
+    static Farol Wa(string id, string nome, string perfil) =>
+        new Farol { Id = id, Nome = nome, Tipo = "navegador", Navegador = "chrome", PerfilId = perfil, PerfilNome = perfil, RegraChave = "whatsapp" };
+
+    static GuiaVista G(string perfil, string titulo, string nav = "chrome") => new GuiaVista { Navegador = nav, PerfilId = perfil, Titulo = titulo };
+
+    [Fact] public void Json_ida_e_volta()
+    {
+        var antes = new List<Farol> {
+            Wa("a1", "WhatsApp Cliente 1", "Profile 1"),
+            new Farol { Id = "b2", Nome = "Interno \"sala\" \\ ç", Tipo = "app", RegraChave = "whatsapp", App = "WhatsAppDesktop" },
+        };
+        var depois = Farois.Carregar(Farois.Salvar(antes));
+        Assert.Equal(2, depois.Count);
+        Assert.Equal("WhatsApp Cliente 1", depois[0].Nome); Assert.Equal("Profile 1", depois[0].PerfilId); Assert.Equal("chrome", depois[0].Navegador);
+        Assert.Equal("Interno \"sala\" \\ ç", depois[1].Nome); Assert.Equal("app", depois[1].Tipo); Assert.Equal("WhatsAppDesktop", depois[1].App);
+        Assert.Equal("b2", depois[1].Id);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("isto não é json")]
+    [InlineData("{\"farois\": [ {\"Id\": \"x\", ")]
+    [InlineData("[1, 2, 3]")]
+    [InlineData("null")]
+    public void Json_invalido_vira_lista_vazia(string json) => Assert.Empty(Farois.Carregar(json));
+
+    [Fact] public void No_maximo_8()
+    {
+        var muitos = Enumerable.Range(1, 11).Select(i => Wa("id" + i, "F" + i, "Profile " + i)).ToList();
+        Assert.Equal(8, Farois.Carregar(Farois.Salvar(muitos)).Count);
+        var json = "[" + string.Join(",", Enumerable.Range(1, 11).Select(i => "{\"Id\":\"" + i + "\",\"Nome\":\"F" + i + "\",\"RegraChave\":\"whatsapp\"}")) + "]";
+        Assert.Equal(8, Farois.Carregar(json).Count);
+        Assert.Equal(8, Farois.Ler(muitos, RegrasPadrao.Todas(), new List<GuiaVista>(), new List<LeituraApp>()).Count);
+    }
+
+    [Fact] public void Dois_whatsapp_em_perfis_diferentes_contam_separado()
+    {
+        var farois = new List<Farol> { Wa("c1", "WhatsApp Cliente 1", "Profile 1"), Wa("in", "WhatsApp Interno", "Default") };
+        var guias = new List<GuiaVista> { G("Profile 1", "(3) WhatsApp"), G("Default", "(1) WhatsApp"), G("Default", "Gmail") };
+        var r = Farois.Ler(farois, RegrasPadrao.Todas(), guias, new List<LeituraApp>());
+        Assert.Equal(new int?[] { 3, 1 }, r.Select(x => x.Pendentes).ToArray());
+        Assert.Equal("farol:c1", r[0].Chave); Assert.Equal("WhatsApp Cliente 1", r[0].Nome);
+        Assert.Equal("farol:in", r[1].Chave); Assert.Equal("WhatsApp Interno", r[1].Nome);
+    }
+
+    [Fact] public void Farol_de_perfil_sem_guia_aberta_e_fechado()
+    {
+        var r = Farois.Ler(new List<Farol> { Wa("c1", "WhatsApp Cliente 1", "Profile 2") }, RegrasPadrao.Todas(),
+            new List<GuiaVista> { G("Profile 1", "(3) WhatsApp"), G("Profile 2", "Gmail") }, new List<LeituraApp>());
+        Assert.Single(r); Assert.Null(r[0].Pendentes);
+    }
+
+    [Fact] public void Mesmo_perfil_em_outro_navegador_nao_conta()
+    {
+        var r = Farois.Ler(new List<Farol> { Wa("c1", "W", "Default") }, RegrasPadrao.Todas(), new List<GuiaVista> { G("Default", "(5) WhatsApp", "msedge") }, null);
+        Assert.Null(r[0].Pendentes);
+    }
+
+    [Fact] public void Gestta_continua_presenca()
+    {
+        var f = new Farol { Id = "g", Nome = "Gestta", Navegador = "chrome", PerfilId = "Default", RegraChave = "gestta" };
+        var r = Farois.Ler(new List<Farol> { f }, RegrasPadrao.Todas(), new List<GuiaVista> { G("Default", "Gestta - Mensagens"), G("Default", "Pendentes 12") }, null);
+        Assert.Equal(0, r[0].Pendentes);
+    }
+
+    [Fact] public void Farol_de_app_usa_badge_e_janela()
+    {
+        var f = new Farol { Id = "w", Nome = "WhatsApp do PC", Tipo = "app", RegraChave = "whatsapp", App = "WhatsAppDesktop" };
+        var apps = new List<LeituraApp> {
+            new LeituraApp { RegraChave = "whatsapp", App = "WhatsAppDesktop", Pendentes = 2 },
+            new LeituraApp { RegraChave = "whatsapp", App = "", Pendentes = 4 },
+            new LeituraApp { RegraChave = "telegram", App = "TelegramDesktop", Pendentes = 9 },
+        };
+        Assert.Equal(4, Farois.Ler(new List<Farol> { f }, RegrasPadrao.Todas(), null, apps)[0].Pendentes);
+        Assert.Null(Farois.Ler(new List<Farol> { f }, RegrasPadrao.Todas(), null, new List<LeituraApp>())[0].Pendentes);
+    }
+
+    [Fact] public void Sem_farois_e_o_automatico()
+    {
+        // sem faróis o núcleo devolve null e o leitor segue no automático, que continua igual
+        Assert.Null(Farois.Ler(new List<Farol>(), RegrasPadrao.Todas(), new List<GuiaVista> { G("Default", "(3) WhatsApp") }, null));
+        Assert.Null(Farois.Ler(null, RegrasPadrao.Todas(), null, null));
+        var janelas = new Dictionary<string, List<string>> { { "Telegram", new List<string> { "Telegram (2)" } } };
+        var guias = new Dictionary<string, List<string>> { { "chrome", new List<string> { "(3) WhatsApp", "(1) WhatsApp", "DS - Gestta (4)" } } };
+        var auto = Leituras.Automatico(RegrasPadrao.Todas(), janelas, guias, app => app == "WhatsAppDesktop" ? 5 : (int?)null);
+        Assert.Equal(5, auto.Single(l => l.Chave == "whatsapp").Pendentes);   // vale o maior entre guia e app
+        Assert.Equal(2, auto.Single(l => l.Chave == "telegram").Pendentes);
+        Assert.Equal(4, auto.Single(l => l.Chave == "gestta").Pendentes);
+        Assert.DoesNotContain(auto, l => l.Chave == "email" || l.Chave == "npconnect" || l.Chave.StartsWith("farol:"));
+    }
+
+    [Fact] public void Reconhece_sistemas_por_perfil_sem_titulo()
+    {
+        var rec = Farois.Reconhecer(RegrasPadrao.Todas(), new List<GuiaVista> { G("Profile 1", "(3) WhatsApp"), G("Profile 1", "Gestta - Mensagens"), G("Default", "Conversa com Fulano"), G("", "(2) WhatsApp") });
+        Assert.Equal(new[] { "Gestta", "WhatsApp Web" }, rec.Select(r => r.Sistema).OrderBy(x => x).ToArray());
+        Assert.All(rec, r => Assert.Equal("Profile 1", r.PerfilId));
+    }
+
+    [Theory]
+    [InlineData("Chrome", "Default")]
+    [InlineData("Chrome.UserData.Profile1", "Profile 1")]
+    [InlineData("MSEdge.UserData.Profile3", "Profile 3")]
+    [InlineData("Chrome.ABCDEF.UserData.Trabalho", "Trabalho")]
+    public void Perfil_pelo_app_id(string aumid, string esperado) =>
+        Assert.Equal(esperado, Farois.PerfilDoAppId(aumid, new[] { "Default", "Profile 1", "Trabalho" }));
+
+    [Fact] public void Perfil_pelo_app_id_vazio_ou_de_app_instalado_e_null()
+    {
+        Assert.Null(Farois.PerfilDoAppId("", new[] { "Default" }));
+        Assert.Null(Farois.PerfilDoAppId("Chrome._crx_hnpfjngllnobngcgfapefoaidbinmjnm.UserData.Default", new[] { "Default" }));
+    }
+
+    [Fact] public void Perfil_pelo_botao_e_pela_linha()
+    {
+        var nomes = new Dictionary<string, List<string>> { { "Default", new List<string> { "Joni" } }, { "Profile 1", new List<string> { "Joni Trabalho" } } };
+        Assert.Equal("Profile 1", Farois.PerfilPeloBotao(new[] { "Voltar", "Joni Trabalho" }, nomes));
+        Assert.Equal("Default", Farois.PerfilPeloBotao(new[] { "Joni" }, nomes));
+        Assert.Null(Farois.PerfilPeloBotao(new[] { "Recarregar" }, nomes));
+        Assert.Equal("Profile 2", Farois.PerfilDaLinha("\"C:\\chrome.exe\" --profile-directory=\"Profile 2\" --flag"));
+        Assert.Equal("Default", Farois.PerfilDaLinha("chrome.exe --profile-directory=Default"));
+        Assert.Null(Farois.PerfilDaLinha("chrome.exe --type=renderer"));
     }
 }

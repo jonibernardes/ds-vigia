@@ -20,62 +20,84 @@ namespace DSVigia
 
         public static List<string> UltimoDiag = new List<string>();
 
-        public static List<Leitura> Ler(List<Regra> regras)
+        public static List<Leitura> Ler(List<Regra> regras) => Ler(regras, null);
+
+        /// <summary>Com faróis: só os faróis, 1 leitura por farol. Sem faróis: o automático de sempre.</summary>
+        public static List<Leitura> Ler(List<Regra> regras, List<Farol> farois)
         {
             UltimoDiag = new List<string>();
+            if (farois != null && farois.Count > 0) return LerFarois(regras, farois);
             var titulos = TitulosDeProcesso();          // processo -> títulos de janela
             foreach (var kv in titulos) foreach (var t in kv.Value) UltimoDiag.Add("janela " + kv.Key + " | " + t);
             var daArvore = TextosPorUia(regras);        // coletado uma vez por processo de navegador
             foreach (var kv in daArvore) UltimoDiag.Add("uia " + kv.Key + " guias=" + kv.Value.Guias.Count + " rotulos=" + kv.Value.Rotulos.Count);
-            var saida = new Dictionary<string, Leitura>();
-
-            foreach (var r in regras.Where(r => r.Ativo).OrderBy(r => r.Ordem))
-            {
-                int? n = null;
-                if (r.Metodo == "janela")
-                {
-                    var alvo = titulos.Where(kv => Casa(r.Processo, kv.Key)).SelectMany(kv => kv.Value);
-                    n = Contagem.PorRotulo(alvo, r.Rotulo);
-                }
-                else if (r.Metodo == "titulo-guia")
-                {
-                    var textos = daArvore.Where(kv => Casa(r.Processo, kv.Key)).SelectMany(kv => kv.Value.Guias);
-                    n = Contagem.PorRotulo(textos, r.Rotulo);
-                }
-                else if (r.Metodo == "notificacao")
-                {
-                    n = Notificacoes.Badge(r.App);
-                }
-                // ocr: só quando a Denise marcar uma região; fica para a v2 (a extensão não fazia)
-
-                UltimoDiag.Add("regra " + r.Chave + "/" + r.Metodo + " proc=" + r.Processo + " -> " + (n.HasValue ? n.Value.ToString() : "null"));
-                if (!n.HasValue) continue;
-                var ja = saida.TryGetValue(r.Chave, out var p) ? p : new Leitura { Chave = r.Chave, Nome = r.Nome };
-                ja.Pendentes = Contagem.Juntar(new[] { ja.Pendentes, n });
-                if (string.IsNullOrEmpty(ja.Nome)) ja.Nome = r.Nome;
-                saida[r.Chave] = ja;
-            }
+            var diag = UltimoDiag;
+            var guias = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in daArvore) guias[kv.Key] = kv.Value.Guias;
+            var saida = Leituras.Automatico(regras, titulos, guias, Notificacoes.Badge, diag.Add)
+                .Select(l => new Leitura { Chave = l.Chave, Nome = l.Nome, Pendentes = l.Pendentes }).ToList();
 
             // desde quando espera: só pelas notificações, que o Windows carimba. Título de janela não tem hora.
-            foreach (var chave in saida.Keys.ToList())
+            for (int i = 0; i < saida.Count; i++)
             {
-                var app = regras.FirstOrDefault(r => r.Chave == chave && r.Metodo == "notificacao" && r.App != "");
-                if (app != null && saida[chave].Pendentes > 0)
+                var app = regras.FirstOrDefault(r => r.Chave == saida[i].Chave && r.Metodo == "notificacao" && r.App != "");
+                if (app != null && saida[i].Pendentes > 0)
                 {
-                    var l = saida[chave];
+                    var l = saida[i];
                     l.MaisAntiga = Notificacoes.MaisAntigaNaoLida(app.App);
-                    saida[chave] = l;
+                    saida[i] = l;
                 }
             }
-            return saida.Values.ToList();
+            return saida;
         }
 
-        static bool Casa(string padrao, string valor)
+        static List<Leitura> LerFarois(List<Regra> regras, List<Farol> farois)
         {
-            if (string.IsNullOrEmpty(padrao)) return true;
-            var re = Contagem.Re(padrao);
-            return re != null && re.IsMatch(valor ?? "");
+            var diag = UltimoDiag;
+            var janelas = farois.Any(f => f.Tipo != "app") ? Perfis.Janelas() : new List<Perfis.Janela>();
+            foreach (var j in janelas) diag.Add("navegador " + j.Navegador + " perfil=" + (j.PerfilId == "" ? "?" : j.PerfilId) + " via=" + j.Via + " guias=" + j.Guias.Count);
+            var guias = janelas.SelectMany(j => j.Guias.Select(t => new GuiaVista { Navegador = j.Navegador, PerfilId = j.PerfilId, PerfilNome = j.PerfilNome, Titulo = t })).ToList();
+            var apps = farois.Any(f => f.Tipo == "app") ? LerApps(regras) : new List<LeituraApp>();
+            var lidas = Farois.Ler(farois, regras, guias, apps);
+
+            var saida = new List<Leitura>();
+            for (int i = 0; i < lidas.Count; i++)
+            {
+                var f = farois[i]; var l = lidas[i];
+                var leitura = new Leitura { Chave = l.Chave, Nome = l.Nome, Pendentes = l.Pendentes };
+                string via;
+                if (f.Tipo == "app")
+                {
+                    via = "app";
+                    if (leitura.Pendentes > 0 && f.App != "") leitura.MaisAntiga = Notificacoes.MaisAntigaNaoLida(f.App);
+                }
+                else
+                {
+                    var vias = janelas.Where(j => j.Navegador == f.Navegador && string.Equals(j.PerfilId, f.PerfilId, StringComparison.OrdinalIgnoreCase)).Select(j => j.Via).Distinct().ToList();
+                    via = vias.Count == 0 ? "-" : string.Join("+", vias);
+                }
+                diag.Add("farol " + f.Nome + " perfil=" + (f.Tipo == "app" ? "-" : f.PerfilId) + " via=" + via + " -> " + (l.Pendentes.HasValue ? l.Pendentes.Value.ToString() : "null"));
+                saida.Add(leitura);
+            }
+            return saida;
         }
+
+        /// <summary>Apps de computador: o número de cada regra janela/notificação, sem juntar. Só número.</summary>
+        public static List<LeituraApp> LerApps(List<Regra> regras)
+        {
+            var titulos = TitulosDeProcesso();
+            var r = new List<LeituraApp>();
+            foreach (var rg in regras.Where(x => x.Ativo).OrderBy(x => x.Ordem))
+            {
+                if (rg.Metodo == "janela")
+                    r.Add(new LeituraApp { RegraChave = rg.Chave, App = "", Pendentes = Contagem.PorRotulo(titulos.Where(kv => Casa(rg.Processo, kv.Key)).SelectMany(kv => kv.Value), rg.Rotulo) });
+                else if (rg.Metodo == "notificacao")
+                    r.Add(new LeituraApp { RegraChave = rg.Chave, App = rg.App, Pendentes = Notificacoes.Badge(rg.App) });
+            }
+            return r;
+        }
+
+        static bool Casa(string padrao, string valor) => Leituras.Casa(padrao, valor);
 
         static Dictionary<string, List<string>> TitulosDeProcesso()
         {
@@ -118,7 +140,7 @@ namespace DSVigia
             return d;
         }
 
-        static void ColherGuias(AutomationElement raiz, List<string> saida)
+        internal static void ColherGuias(AutomationElement raiz, List<string> saida)
         {
             try
             {

@@ -39,32 +39,41 @@ namespace DSVigia
             { Cor.Verde, Color.FromArgb(18,161,80) }, { Cor.Amarelo, Color.FromArgb(245,183,10) },
             { Cor.Vermelho, Color.FromArgb(217,45,32) }, { Cor.Cinza, Color.FromArgb(120,135,135) } };
 
-        public void Mostrar(List<Canal> canais, DateTime agora)
+        /// <param name="fixa">ordem dos faróis (chaves); null = a de sempre, por cor e espera</param>
+        public void Mostrar(List<Canal> canais, DateTime agora, IList<string> fixa = null)
         {
             if (IsDisposed || !Visible) return;
             var ordem = new Dictionary<Cor, int> { { Cor.Vermelho, 0 }, { Cor.Amarelo, 1 }, { Cor.Verde, 2 }, { Cor.Cinza, 3 } };
-            var lista = canais.OrderBy(c => ordem[c.CorEm(agora)]).ThenByDescending(c => c.Minutos(agora)).ThenBy(c => c.Nome).ToList();
+            var lista = fixa != null
+                ? canais.OrderBy(c => { var i = fixa.IndexOf(c.Chave); return i < 0 ? int.MaxValue : i; }).ToList()
+                : canais.OrderBy(c => ordem[c.CorEm(agora)]).ThenByDescending(c => c.Minutos(agora)).ThenBy(c => c.Nome).ToList();
+            int largura = 0;
             faixa.SuspendLayout(); faixa.Controls.Clear();
             if (lista.Count == 0)
                 faixa.Controls.Add(new Label { Text = "Nenhum sistema aberto", ForeColor = Color.Gainsboro, AutoSize = true, Margin = new Padding(6, 24, 6, 0) });
             foreach (var c in lista)
             {
                 var cor = c.CorEm(agora);
-                var cel = new Panel { Width = 76, Height = 64, Margin = new Padding(2) };
+                // nome livre do farol ("WhatsApp Cliente 1"): a célula alarga até 132 para caber
+                var w = Math.Min(132, Math.Max(76, TextRenderer.MeasureText(c.Nome ?? "", fonteNome).Width + 8));
+                largura += w + 4;
+                var cel = new Panel { Width = w, Height = 64, Margin = new Padding(2) };
                 var bola = new Label {
                     Text = cor == Cor.Cinza ? "–" : (c.Pendentes ?? 0).ToString(), Width = 32, Height = 32,
                     TextAlign = ContentAlignment.MiddleCenter, ForeColor = cor == Cor.Amarelo ? Color.FromArgb(29,43,43) : Color.White,
-                    BackColor = C[cor], Font = new Font("Segoe UI", 12, FontStyle.Bold), Left = 22, Top = 0 };
+                    BackColor = C[cor], Font = new Font("Segoe UI", 12, FontStyle.Bold), Left = (w - 32) / 2, Top = 0 };
                 bola.Paint += Arredondar(bola);
-                var nome = new Label { Text = c.Nome, ForeColor = Color.White, Font = new Font("Segoe UI", 7.5f), Width = 76, Height = 14, Top = 34, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
+                var nome = new Label { Text = c.Nome, ForeColor = Color.White, Font = fonteNome, Width = w, Height = 14, Top = 34, TextAlign = ContentAlignment.MiddleCenter, AutoEllipsis = true };
                 var apoio = new Label { Text = cor == Cor.Cinza ? "sem sinal" : (c.Pendentes > 0 ? Canal.TextoEspera(c.Minutos(agora)) : "em dia"),
-                    ForeColor = cor == Cor.Vermelho ? Color.FromArgb(255,180,171) : Color.FromArgb(138,222,220), Font = new Font("Segoe UI", 7), Width = 76, Height = 12, Top = 48, TextAlign = ContentAlignment.MiddleCenter };
+                    ForeColor = cor == Cor.Vermelho ? Color.FromArgb(255,180,171) : Color.FromArgb(138,222,220), Font = new Font("Segoe UI", 7), Width = w, Height = 12, Top = 48, TextAlign = ContentAlignment.MiddleCenter };
                 cel.Controls.Add(bola); cel.Controls.Add(nome); cel.Controls.Add(apoio);
                 faixa.Controls.Add(cel);
             }
             faixa.ResumeLayout();
-            Width = Math.Min(Math.Max(140, lista.Count * 82 + 16), Screen.PrimaryScreen.WorkingArea.Width - 40);
+            Width = Math.Min(Math.Max(140, largura + 18), Screen.PrimaryScreen.WorkingArea.Width - 40);
         }
+
+        static readonly Font fonteNome = new Font("Segoe UI", 7.5f);
 
         static PaintEventHandler Arredondar(Control c) => (s, e) =>
         {

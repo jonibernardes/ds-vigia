@@ -15,7 +15,7 @@ namespace DSVigia
     public static class AutoAtualizar
     {
         const string RELEASE = "https://api.github.com/repos/jonibernardes/ds-vigia/releases/latest";
-        public const string Versao = "1.0.0";
+        public const string Versao = "1.1.0";
 
         public static void Verificar()
         {
