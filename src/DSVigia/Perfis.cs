@@ -68,7 +68,7 @@ namespace DSVigia
                     if (id == null && outra) { id = "Default"; j.Via = "c"; }
                     j.PerfilId = GuiasNav.ChavePerfil(pasta, padrao, id);
                     var nome = id != null && perfis.TryGetValue(id, out var ns) && ns.Count > 0 && ns[0] != "" ? ns[0] : (id ?? "");
-                    j.PerfilNome = outra && nome != "" ? nome + " (outra pasta do " + (proc == "msedge" ? "Edge" : "Chrome") + ")" : nome;
+                    j.PerfilNome = outra && nome != "" ? nome + " (outra pasta)" : nome;
                     r.Add(j);
                 }
                 catch { /* janela fechou no meio */ }
